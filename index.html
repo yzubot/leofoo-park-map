@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>六福村親子地圖</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* 一張滿版地圖＋底部可拉的行程表 */
+:root{--bg:#f6f4ef;--fg:#1f2a24;--muted:#5d6b62;--card:#ffffff;--line:#d9d4c8;--accent:#c2410c;--zoo:#3f7d3a;--west:#9a3412;--arab:#7c3aed;--south:#0e7490;--me:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#141815;--fg:#e8ece6;--muted:#9fb0a4;--card:#1d231f;--line:#334036;--accent:#fb923c;color-scheme:dark}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 "Noto Sans TC",system-ui,-apple-system,"PingFang TC",sans-serif;display:flex;flex-direction:column}
+#map{flex:1 1 55%;min-height:300px}
+#panel{flex:1 1 45%;overflow:auto;padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)}
+h1{font-size:18px;margin:0 0 4px;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 12px;cursor:pointer}
+button.on{background:var(--me);border-color:var(--me);color:#fff}
+#gps{font-size:13px;color:var(--muted);margin:0 0 10px}
+ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;grid-template-columns:58px 1fr;gap:4px 10px;cursor:pointer}
+li .t{font-weight:700;font-variant-numeric:tabular-nums}
+li .n{font-weight:700}
+li .d{grid-column:2;color:var(--muted);font-size:13px}
+li .w{grid-column:2;font-size:13px;color:var(--accent);font-variant-numeric:tabular-nums}
+li.warn .d{color:var(--accent)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.note{font-size:12px;color:var(--muted);margin-top:12px}
+.pin{width:26px;height:26px;border-radius:50%;color:#fff;font:700 13px/26px system-ui;text-align:center;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.fac{font-size:16px;line-height:20px;text-align:center}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>六福村親子地圖（10/9 下午）</h1>
+  <p class="sub">底圖是六福村官網的導覽圖，已對準真實座標。步行時間用推嬰兒車的速度估算（每分鐘約 50 公尺，路線比直線多算 40%）。</p>
+  <div class="bar">
+    <button id="btnGps">📍 開啟我的定位</button>
+    <button id="btnFollow">跟著我移動</button>
+    <button id="btnFac" class="on">🚻 洗手間／哺乳室</button>
+    <button id="btnAll">看全部行程</button>
+  </div>
+  <p id="gps">還沒開啟定位。按「開啟我的定位」，手機會問要不要允許，選允許。</p>
+  <ol id="plan"></ol>
+  <p class="note">資料來源：六福村官網（導覽地圖座標、動物區開放時間、活動公告）。猛獸區巴士班次（約每 15 分鐘一班、末班 16:30）是網友整理，非官網公告。下雨時遊行與動物見面會取消。</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// 官網 mapV2.js 的 GroundOverlay 範圍
+const BOUNDS=[[24.815761,121.176435],[24.825850,121.190556]];
+const AREA={zoo:['非洲部落','var(--zoo)','#3f7d3a'],west:['美國大西部','var(--west)','#9a3412'],arab:['阿拉伯皇宮','var(--arab)','#7c3aed'],south:['南太平洋','var(--south)','#0e7490'],gate:['入口','var(--accent)','#c2410c']};
+// 行程（座標＝官網 GetMapInfo）
+const PLAN=[
+ {t:'14:00',n:'入口・售票口',a:'gate',p:[24.822267,121.18407],d:'說要用「國慶碼」599，帶身分證；3 歲以下免費。服務中心、置物櫃、哺乳室都在入口旁。'},
+ {t:'14:15',n:'猛獸區巴士站',a:'zoo',p:[24.823542,121.18159],d:'免費。看孟加拉虎、白老虎、獅子。約每 15 分鐘一班，末班 16:30（網友資料）。'},
+ {t:'14:45',n:'蒸氣火車',a:'zoo',p:[24.822561,121.181184],d:'0 公分起，大人陪坐。開進草食區看河馬、野牛、白犀牛。'},
+ {t:'15:00',n:'親親園・羊駝區・小小驛馬車',a:'zoo',p:[24.821948,121.181099],d:'山羊、羊駝近看；小小驛馬車限 120 公分以下。動物區 16:30 關。'},
+ {t:'15:20',n:'山姆叔叔的雜貨店（要糖果集合）',a:'west',p:[24.820457,121.18245],d:'15:30「不給糖就搗蛋」由哈比帶隊，經過野牛屋、懷舊相館、SNOOPY 商店。先問工作人員出發點。',warn:1},
+ {t:'16:00',n:'阿拉伯皇宮：天馬行空・阿里巴巴',a:'arab',p:[24.82152,121.180946],d:'阿里巴巴是室內設施，小小孩要抱著（包巾）。這區 17:00 關。'},
+ {t:'16:30',n:'南太平洋：獨木舟・巨嘴鳥・侏儸紀失樂園',a:'south',p:[24.820343,121.180246],d:'兒童獨木舟水深及膝、大人陪划。這區 17:00 關。'},
+ {t:'17:00',n:'摩天蓬車（摩天輪）',a:'west',p:[24.820316,121.181608],d:'17:00 後只開美國大西部，設施是否全開以現場為準。'},
+ {t:'17:30',n:'晚餐：漢堡店／美墨捲餅屋／福記小廚',a:'west',p:[24.819518,121.182476],d:'惡靈餐廳 17:30 有鬼娃表演，兩歲小孩可能會怕。'},
+ {t:'18:40',n:'夜間遊行卡位（墓碑鎮大街）',a:'west',p:[24.82033,121.18235],d:'19:00「鹿魔覺醒」，5 米鹿魔偏恐怖。站後排、路邊好抱走的位置。遊行確切路線以現場公告為準（位置是我估的）。',warn:1},
+ {t:'19:30',n:'閉園・回停車場',a:'gate',p:[24.822267,121.18407],d:'散場時出口排隊上 118 縣道。想避開就遊行看一半先走。'}
+];
+const FAC={"洗手間":"🚻","哺乳室":"🍼","救護站":"⛑️"};
+const FACDATA={"服務中心": [[24.822267, 121.18407]], "洗手間": [[24.821874, 121.184548], [24.821452, 121.184131], [24.82153, 121.183059], [24.821693, 121.183577], [24.820839, 121.182808], [24.820289, 121.182545], [24.819738, 121.183316], [24.819625, 121.18235], [24.820436, 121.180879], [24.81953, 121.180158], [24.820985, 121.180906], [24.821562, 121.180903], [24.822831, 121.181385]], "哺乳室": [[24.822152, 121.18422], [24.82041, 121.182283], [24.819787, 121.179933]], "救護站": [[24.822155, 121.184252], [24.821192, 121.184305], [24.820199, 121.182453]]};
+
+const map=L.map('map',{zoomControl:true,maxZoom:20}).fitBounds([[24.8193,121.1797],[24.8238,121.1848]]);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,maxNativeZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+L.imageOverlay('park.png',BOUNDS,{opacity:0.92}).addTo(map);
+
+function hav(a,b){const R=6371000,r=Math.PI/180,dl=(b[0]-a[0])*r,dn=(b[1]-a[1])*r;const x=Math.sin(dl/2)**2+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+const walk=(a,b)=>{const m=hav(a,b)*1.4;return {m:Math.round(m/10)*10,min:Math.max(1,Math.round(m/50))};};
+
+const line=L.polyline(PLAN.map(s=>s.p),{color:'#c2410c',weight:4,opacity:.7,dashArray:'6 8'}).addTo(map);
+const markers=[];
+PLAN.forEach((s,i)=>{
+  const icon=L.divIcon({className:'',html:`<div class="pin" style="background:${AREA[s.a][2]}">${i+1}</div>`,iconSize:[26,26],iconAnchor:[13,13]});
+  const m=L.marker(s.p,{icon}).addTo(map).bindPopup(`<b>${s.t} ${s.n}</b><br>${s.d}`);
+  markers.push(m);
+});
+const facLayer=L.layerGroup().addTo(map);
+for(const [k,arr] of Object.entries(FACDATA)){ if(!FAC[k])continue;
+  arr.forEach(p=>L.marker(p,{icon:L.divIcon({className:'fac',html:FAC[k],iconSize:[20,20]})}).bindPopup(k).addTo(facLayer)); }
+
+const ol=document.getElementById('plan');
+PLAN.forEach((s,i)=>{
+  const li=document.createElement('li'); if(s.warn) li.className='warn';
+  let w=''; if(i>0){const x=walk(PLAN[i-1].p,s.p); w=`從上一站走約 ${x.m} 公尺，約 ${x.min} 分鐘`;}
+  li.innerHTML=`<span class="t">${s.t}</span><span class="n"><span class="dot" style="background:${AREA[s.a][1]}"></span>${i+1}. ${s.n}</span><span class="d">${s.d}</span>${w?`<span class="w">${w}</span>`:''}<span class="w me" data-i="${i}"></span>`;
+  li.onclick=()=>{map.setView(s.p,19);markers[i].openPopup();};
+  ol.appendChild(li);
+});
+
+let me=null,acc=null,follow=false,watch=null,last=null;
+const gpsEl=document.getElementById('gps');
+function inPark(p){return p[0]>BOUNDS[0][0]&&p[0]<BOUNDS[1][0]&&p[1]>BOUNDS[0][1]&&p[1]<BOUNDS[1][1];}
+function onPos(pos){
+  const p=[pos.coords.latitude,pos.coords.longitude]; last=p;
+  if(!me){me=L.circleMarker(p,{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map);acc=L.circle(p,{radius:pos.coords.accuracy,color:'#2563eb',weight:1,fillOpacity:.12}).addTo(map);map.setView(p,inPark(p)?18:map.getZoom());}
+  me.setLatLng(p);acc.setLatLng(p).setRadius(pos.coords.accuracy);
+  if(follow)map.panTo(p);
+  const t=new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+  gpsEl.textContent=inPark(p)?`📍 已定位（${t}，誤差約 ${Math.round(pos.coords.accuracy)} 公尺）。每一站下面會顯示從你這裡走過去要多久。`:`📍 已定位，但你還不在六福村裡（${t}）。進園後藍點會出現在地圖上。`;
+  document.querySelectorAll('.me').forEach(el=>{const s=PLAN[+el.dataset.i];if(!inPark(p)){el.textContent='';return;}const x=walk(p,s.p);el.textContent=`從你現在的位置：約 ${x.m} 公尺，約 ${x.min} 分鐘`;});
+}
+function onErr(e){gpsEl.textContent=e.code===1?'定位被拒絕了。到手機設定→Safari／Chrome→位置，改成允許，再重新整理。':'暫時抓不到定位（'+e.message+'），到空曠處再試一次。';}
+document.getElementById('btnGps').onclick=function(){
+  if(!navigator.geolocation){gpsEl.textContent='這個瀏覽器不支援定位。';return;}
+  if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null;this.classList.remove('on');this.textContent='📍 開啟我的定位';return;}
+  gpsEl.textContent='定位中…';
+  watch=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  this.classList.add('on');this.textContent='📍 定位中（按一下關閉）';
+};
+document.getElementById('btnFollow').onclick=function(){follow=!follow;this.classList.toggle('on',follow);if(follow&&last)map.panTo(last);};
+document.getElementById('btnFac').onclick=function(){const on=map.hasLayer(facLayer);on?map.removeLayer(facLayer):facLayer.addTo(map);this.classList.toggle('on',!on);};
+document.getElementById('btnAll').onclick=()=>map.fitBounds(line.getBounds().pad(0.15));
+</script>
+</body>
+</html>
