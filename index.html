@@ -50,6 +50,7 @@ li.warn .d{color:var(--accent)}
     <button id="btnFollow">跟著我移動</button>
     <button id="btnFac" class="on">🚻 洗手間／哺乳室</button>
     <button id="btnAll">看全部行程</button>
+    <button id="btnParade" class="on">🦌 遊行位置</button>
   </div>
   <div class="search"><label for="q" class="sub" style="display:block;margin:0 0 4px">搜尋設施、餐廳、商店、洗手間</label>
     <input id="q" type="search" placeholder="例如：旋轉木馬、巨嘴鳥、哺乳室、漢堡" autocomplete="off" enterkeyhint="search">
@@ -159,6 +160,17 @@ function search(){
 }
 qEl.addEventListener('input',search);
 qEl.addEventListener('keydown',e=>{if(e.key==='Enter'){const f=resEl.querySelector('li:not(.none)');if(f){f.click();qEl.blur();}}});
+
+// ---- 19:00 夜間遊行（官方只寫「美國大西部惡靈大道」，起訖點未公布 → 路線依官網地圖街道推估）
+const PARADE=[[24.82078,121.18205],[24.82045,121.18245],[24.82010,121.18285],[24.81975,121.18322]];
+const SPOT=[24.82085,121.18232];
+const RETREAT=[SPOT,[24.82104,121.18259],[24.82145,121.18275],[24.82183,121.18350],[24.82210,121.18405],[24.822267,121.18407]];
+const parade=L.layerGroup().addTo(map);
+L.polyline(PARADE,{color:'#dc2626',weight:10,opacity:.55}).bindPopup('<b>夜間遊行 19:00「鹿魔覺醒」</b><br>美國大西部惡靈大道（官方地點）。<br>線條位置依官網地圖街道推估，起點、終點官方沒公布。').addTo(parade);
+L.marker(SPOT,{icon:L.divIcon({className:'',html:'<div class="hit" style="background:#16a34a;box-shadow:0 0 0 3px #16a34a,0 2px 6px rgba(0,0,0,.4)">✓</div>',iconSize:[30,30],iconAnchor:[15,15]}),zIndexOffset:900})
+ .bindPopup('<b>建議站這裡</b><br>惡靈大道靠中央廣場那一端的後排、路邊。<br>小朋友怕了可以沿綠色虛線經中央廣場→入口大道→大門／停車場，不用穿過遊行隊伍。<br>起點終點官方沒公布，如果遊行是從這一端出發，往大道中段退一點。').addTo(parade);
+L.polyline(RETREAT,{color:'#16a34a',weight:5,dashArray:'8 8'}).bindPopup('撤退路線：中央廣場→入口大道→園區大門→停車場（依官網地圖推估）').addTo(parade);
+document.getElementById('btnParade').onclick=function(){const on=map.hasLayer(parade);if(on){map.removeLayer(parade);}else{parade.addTo(map);map.fitBounds(L.latLngBounds(PARADE.concat(RETREAT)).pad(0.2));}this.classList.toggle('on',!on);};
 </script>
 </body>
 </html>
